@@ -1,0 +1,10 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-02-20"
+---
+
+```{}
+library(epiwraps)
+sessionInfo()
+```
