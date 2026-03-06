@@ -1,0 +1,87 @@
+---
+title: "Assignment"
+output: html_document
+date: "2026-03-06"
+---
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub) # to fetch genomes, annotations, etc.
+  library(ensembldb)     # to manipulate ensembl gene annotations
+  library(GenomicRanges) # data structure for genomic ranges 
+  library(epiwraps)      # visualization
+})
+```
+```{r}
+ah <- AnnotationHub()
+query_results <- query(ah, c("Mus Musculus", "EnsDb","102","GRCm38"))
+query_results$genome
+query_results$rdatadateadded
+rev(query_results$ah_id)
+
+mouse <- ah[["AH89211"]]
+mouse
+```
+```{r}
+
+query_results <- query(ah, c("Mus Musculus", "TwoBit","GRCm38", "dna_sm"))
+query_results$genome
+query_results$rdatadateadded
+rev(query_results$ah_id)
+
+mouse_tb <-ah[["AH88477"]]
+mouse_tb
+
+```
+```{r}
+query_results <- query(ah, c("Drosophila", "TwoBit","BDGP6", "dna_sm"))
+query_results$genome
+query_results$rdatadateadded
+rev(query_results$ah_id)
+
+Drosophila_tb <-ah[[ "AH106160"]]
+Drosophila_tb
+```
+```{r}
+
+mouse_genes <- genes(mouse)
+mouse_genes
+
+
+mouse_pcg <- mouse_genes[mouse_genes$gene_biotype =='protein_coding']
+
+length(mouse_pcg) # 22287 protein-coding genes
+
+num_gene_ids <- length(unique(mouse_pcg$gene_id))
+
+num_gene_symbols <- length(unique(mouse_pcg$symbol)) 
+
+num_gene_names <- length(unique(mouse_pcg$gene_name)) 
+
+num_gene_ids # 22287 unique gene id
+num_gene_symbols #21964 unique gene symbols
+num_gene_names #21964 unique gene names
+
+```
+```{r}
+mouse_exons <- exonsBy(
+  mouse,
+  by = "tx",
+  filter = TxBiotypeFilter("protein_coding")
+)
+tx_lengths <- sum(width(mouse_exons))
+
+hist(tx_lengths,
+     breaks=200,
+     main="Distribution of spliced transcript lengths",
+     xlab="Transcript length (bp)",
+     xlim = c(0, 15000))
+
+```
+```{r}
+hist(log10(tx_lengths),
+     breaks = 50,
+     main = "Distribution of spliced transcript lengths",
+     xlab = "log10(Transcript length in bp)")
+```
+
+
