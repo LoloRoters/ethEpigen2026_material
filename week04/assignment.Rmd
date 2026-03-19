@@ -1,0 +1,228 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-03-18"
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(epiwraps)
+  library(rtracklayer)
+  library(ggplot2)
+  library(R.utils)
+})
+ah <- AnnotationHub()
+```
+## Download files
+
+```{r}
+
+setwd("C:/Users/lo/Desktop/master/bioinformatics/week4/ENCODE_files/")
+
+
+
+#Mus musculus strain Bruce4 ES-Bruce4 for mouse embryonic stem cells
+#adults for heart
+
+
+options(timeout=1800)
+
+
+download.file("https://www.encodeproject.org/files/ENCFF733HUI/@@download/ENCFF733HUI.bed.gz", "H3K27ac_heart.bed.gz", mode = "wb")
+
+download.file("https://www.encodeproject.org/files/ENCFF360VIS/@@download/ENCFF360VIS.bed.gz", "H3K27ac_stem.bed.gz", mode = "wb")
+
+
+
+
+download.file(
+  "https://www.encodeproject.org/files/ENCFF183KJW/@@download/ENCFF183KJW.bed.gz",
+  "H3K27me3_heart.bed.gz",
+  mode = "wb"
+)
+
+download.file(
+  "https://www.encodeproject.org/files/ENCFF008XKX/@@download/ENCFF008XKX.bed.gz",
+  "H3K27me3_stem.bed.gz",
+  mode = "wb"
+)
+
+
+
+download.file(
+  url = "https://www.encodeproject.org/files/ENCFF383PSV/@@download/ENCFF383PSV.bed.gz",
+  destfile = "EP300_heart.bed.gz",
+  mode = "wb"
+)
+download.file(
+  url = "https://www.encodeproject.org/files/ENCFF183KJW/@@download/ENCFF183KJW.bed.gz",
+  destfile = "EP300_stem.bed.gz",
+  mode = "wb"
+)
+
+
+```
+##Unzip
+
+```{r}
+
+gunzip("H3K27me3_heart.bed.gz") 
+gunzip("H3K27ac_heart.bed.gz")
+gunzip("EP300_heart.bed.gz")
+gunzip("H3K27me3_stem.bed.gz") 
+gunzip("H3K27ac_stem.bed.gz")
+gunzip("EP300_stem.bed.gz")
+```
+
+
+
+
+## TSS
+
+```{r}
+
+#query(ah, c("Mus musculus", "EnsDb"))
+
+
+ensdb <- ah[["AH53222"]]   
+
+genes_gr <- genes(ensdb, filter = ~ gene_biotype == "protein_coding")
+tss <- promoters(genes_gr, upstream = 0, downstream = 1)
+seqlevelsStyle(tss) <- seqlevelsStyle(H3K27ac_heart)
+length(tss)  
+
+seqlevels(tss)
+seqinfo(tss)
+
+standard <- standardChromosomes(tss)
+tss <- keepSeqlevels(tss, standard, pruning.mode="coarse")
+
+seqlevelsStyle(tss) <- "UCSC"
+```
+
+
+
+## Read & overlaps
+```{r}
+
+H3K27me3_heart <- rtracklayer::import("H3K27me3_heart.bed", format="narrowPeak")
+
+H3K27ac_heart <- rtracklayer::import("H3K27ac_heart.bed", format="narrowPeak")
+
+EP300_heart <- rtracklayer::import("EP300_heart.bed", format="narrowPeak")
+
+
+H3K27me3_stem <- rtracklayer::import("H3K27me3_stem.bed", format="narrowPeak")
+
+H3K27ac_stem <- rtracklayer::import("H3K27ac_stem.bed", format="narrowPeak")
+
+EP300_stem <- rtracklayer::import("EP300_stem.bed", format="narrowPeak")
+
+
+
+```
+
+
+```{r}
+
+
+res <- c(
+  H3K27ac_h = sum(overlapsAny(tss, H3K27ac_heart)) / length(tss),
+  H3K27me3_h = sum(overlapsAny(tss, H3K27me3_heart)) / length(tss),
+  H3K27ac_s = sum(overlapsAny(tss, H3K27ac_stem)) / length(tss),
+  H3K27me3_s = sum(overlapsAny(tss, H3K27me3_stem)) / length(tss)
+)
+
+res
+
+
+both_h <- overlapsAny(tss, H3K27ac_heart) & overlapsAny(tss, H3K27me3_heart)
+both_s <- overlapsAny(tss, H3K27ac_stem) & overlapsAny(tss, H3K27me3_stem)
+
+c(
+  both_heart = sum(both_h)/length(tss),
+  both_stem = sum(both_s)/length(tss)
+)
+
+
+
+```
+## What is the proportion of TSS that overlap H3K27ac, H3K27me3, and the combination of both, in each tissue? 
+
+
+```{mermaid}
+H3K27ac_h H3K27me3_h  H3K27ac_s H3K27me3_s 
+0.14526919 0.03176626 0.05925454  0.02202703  
+
+both_heart    both_stem 
+0.0003185728 0.0000000000 
+
+
+14.5% of TSS overlap H3K27ac in heart, ~5.9% of TSS overlap H3K27ac in stem. For me it seems strange, because I would expect H3K27ac more active in stem cells. (higher gene expression)
+
+3.2% of TSS overlap H3K27me3 in heart, ~2.3% of TSS overlap H3K27me3 in stem. The low number is quite normal for both, but I would expect the higher per cent for heart, because more genes are silent
+
+Bivalency is typical in stem cells or early development, so 0 is quite strange result.
+        
+        
+```
+
+## Heat map
+
+```{r}
+# Heart
+peaks_heart <- list(
+  H3K27ac = H3K27ac_heart,
+  H3K27me3 = H3K27me3_heart,
+  p300 = EP300_heart
+)
+
+# Stem cells
+peaks_stem <- list(
+  H3K27ac = H3K27ac_stem,
+  H3K27me3 = H3K27me3_stem,
+  p300 = EP300_stem
+)
+
+regionOverlaps(peaks_heart)
+regionOverlaps(peaks_stem)
+```
+
+
+
+##What is the relationship between the 3 signals (p300, H3K27ac, and H3K27me3), and is it the same in both tissues?
+
+
+
+```{mermaid}
+The main difference for me that for heart we can see a lot of p300 and H3K27ac, and for p300 and H3K27me3 for stem, may be genes repressed, but ready to activation
+```
+
+
+## heat map
+
+```{r}
+peaks <- list(
+  H3K27ac_h = H3K27ac_heart,
+  H3K27me3_h = H3K27me3_heart,
+  p300_h = EP300_heart,
+  H3K27ac_s = H3K27ac_stem,
+  H3K27me3_s = H3K27me3_stem,
+  p300_s = EP300_stem
+)
+regionOverlaps(peaks)
+
+```
+
+
+
+## What is the relationship between regulatory elements active in mESC and in the differentiated tissue?
+
+```{mermaid}
+We can see overlap between half of H3K27ac and half of H3K27me3, it means that about half genes, expressed in embryo stem cell, expresse in heart. 
+```
+
