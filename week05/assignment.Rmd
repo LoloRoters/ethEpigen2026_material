@@ -1,0 +1,102 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-03-26"
+---
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(SummarizedExperiment)
+  library(edgeR) # differential gene expression using neg.bin stats
+  library(epiwraps)
+  library(ggplot2)
+  library(sechm) # for plotting (features*samples) heatmaps
+})
+```
+
+## Downloading the data
+```{r}
+options(timeout=3600)
+download.file("https://ethz-ins.org/content/mouse_mm38_hippocampus.peakCounts.SE.rds", "mouse_mm38_hippocampus.peakCounts.SE.rds", mode="wb")
+
+```
+
+```{r}
+se <- readRDS("mouse_mm38_hippocampus.peakCounts.SE.rds")
+se
+
+colData(se)     
+
+```
+
+
+## Creating groups
+```{r}
+
+samples <- colnames(se)
+colData(se)$condition <- factor(
+  ifelse(grepl("^Control", samples), "Control", "FSS"),
+  levels = c("Control", "FSS")
+)
+colData(se)$sex <- factor(
+  ifelse(grepl("female", samples), "female", "male"),
+  levels = c("female", "male")
+)
+colData(se)
+```
+
+
+## differential analysis
+
+```{r}
+
+mm <- model.matrix(~ sex + condition, data = as.data.frame(colData(se)))
+
+
+dds <- DGEList(assay(se))
+dds <- calcNormFactors(dds)
+dds <- estimateDisp(dds, mm)
+
+fit <- glmQLFit(dds, mm)
+
+res_cond2 <- as.data.frame(topTags(glmQLFTest(fit, coef = "conditionFSS"), n = Inf))
+res_sex2  <- as.data.frame(topTags(glmQLFTest(fit, coef = "sexmale"), n = Inf))
+
+```
+
+## TOP regions FSS/control
+```{r}
+topRegions_cond <- rownames(res_cond2)[1:10]
+
+topRegions_cond
+```
+
+## TOP regions female/male
+```{r}
+topRegions_sex  <- rownames(res_sex2)[1:10]
+
+topRegions_sex
+```
+
+
+## Heatmap FSS/control
+
+```{r}
+rownames(se) <- rownames(dds)
+
+
+assay(se, "logcpm") <- log1p(cpm(dds))
+
+sechm(se, topRegions_cond, gaps_at = "condition")
+```
+
+
+## Heatmap Male/Female
+```{r}
+
+sechm(se, topRegions_sex, gaps_at = "sex", assay = "logcpm")
+
+```
+
+
+
