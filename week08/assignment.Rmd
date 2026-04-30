@@ -1,0 +1,181 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-04-30"
+---
+
+#Library
+
+```{r setup}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(ggplot2)
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(edgeR)
+  library(rtracklayer)
+  library(BiocParallel)
+  library(bsseq)   # Class and tools to analyze bisulfite sequencing data at CpG-level
+  library(DMRcate) # Identification of differentially-methylated regions
+})
+```
+
+#Load data
+
+
+```{r, download, eval=FALSE}
+setwd("C:/Users/lo/Desktop/master/bioinformatics/week8")
+getwd()
+list.files()
+options(timeout = 6000)
+download.file("https://ethz-ins.org/content/w11_practical.zip", "w11_practical.zip")
+unzip("w11_practical.zip")
+```
+
+
+
+
+```{r}
+# Load data 
+bs <- readRDS("ESC_astrocytes_BSseq.rds")
+
+```
+
+
+# Data preparation
+
+
+```{r}
+
+
+bs <- bs[rowSums(assay(bs, "Cov") > 0) == ncol(bs), ]
+
+design <- model.matrix(~celltype, data = pData(bs))
+methdesign <- modelMatrixMeth(design)
+
+
+bs <- BSmooth(bs, BPPARAM=MulticoreParam(4, progress=TRUE))
+
+# Annotate for DMRcate
+seqAnnot <- sequencing.annotate(
+  bs,
+  methdesign,
+  all.cov = TRUE,
+  coef = "celltypeastrocytes"
+)
+
+```
+
+#DMR
+```{r}
+
+
+dmrcateRes <- dmrcate(seqAnnot, C = 2, min.cpgs = 5)
+dmrRanges <- extractRanges(dmrcateRes, genome = "hg19")
+
+
+dmr_chr1 <- dmrRanges[seqnames(dmrRanges) == "chr1"]
+dmr_chr1 <- dmr_chr1[order(abs(dmr_chr1$meandiff), decreasing = TRUE)]
+
+
+
+```
+
+
+# Plot
+
+```{r}
+
+top5_dmrs <- head(dmr_chr1, 5)
+
+
+metDMRs <- bsseq::getMeth(
+  bs,
+  regions = top5_dmrs,
+  what = "perRegion"
+)
+
+
+colnames(metDMRs) <- colnames(bs)
+
+
+rownames(metDMRs) <- paste0(
+  "DMR_", seq_len(nrow(metDMRs)),
+  "_chr", seqnames(top5_dmrs),
+  ":", start(top5_dmrs), "-", end(top5_dmrs)
+)
+
+
+pheatmap(
+  metDMRs,
+  name = "methylation"
+)
+```
+
+
+
+# Part 2
+
+
+```{r}
+
+
+atac <- readRDS("ATAC_AstroVsESC_subset.rds")
+head(atac)
+head(dmrRanges)
+```
+
+
+```{r}
+
+atac_clean <- GRanges(
+  seqnames = seqnames(atac),
+  ranges   = ranges(atac),
+  logFC    = atac$logFC,
+  FDR      = atac$FDR
+)
+
+dmr_clean <- GRanges(
+  seqnames = seqnames(dmrRanges),
+  ranges   = ranges(dmrRanges),
+  meandiff = dmrRanges$meandiff
+)
+
+hits <- findOverlaps(dmr_clean, atac_clean)
+
+
+matched <- data.frame(
+  meandiff = mcols(dmr_clean)$meandiff[queryHits(hits)],
+  logFC    = mcols(atac_clean)$logFC[subjectHits(hits)],
+  FDR      = mcols(atac_clean)$FDR[subjectHits(hits)]
+)
+
+
+ggplot(matched, aes(x = meandiff, y = logFC)) +
+  geom_point(aes(colour = FDR < 0.05), alpha = 0.7, size = 2) +
+  geom_smooth(method = "lm", colour = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_colour_manual(values = c("grey70", "steelblue"),
+                      labels = c("ns", "FDR < 0.05")) +
+  labs(x = "DMR mean methylation difference",
+       y = "ATAC logFC",
+       colour = "ATAC significance",
+       title  = "Methylation vs Chromatin Accessibility") +
+  theme_bw()
+
+
+cor.test(matched$meandiff, matched$logFC, method = "spearman")
+```
+
+
+```{mermaid}
+ We overlapped differentially methylated regions (DMRs) with differential ATAC-seq peaks and compared the direction of change (methylation difference vs. log fold change in accessibility) using a scatter plot and Spearman correlation.
+There is a significant negative correlation (ρ = −0.26, p < 2.2e-16), indicating that regions gaining methylation in astrocytes tend to become less accessible, and vice versa — consistent with DNA methylation being associated with closed chromatin. The modest effect size suggests this relationship holds genome-wide but is not the only regulatory mechanism at play.
+
+```
+
+
+
