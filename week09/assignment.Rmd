@@ -1,0 +1,208 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-05-14"
+---
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT) # Gene Ontology enrichment among genomic regions
+})
+```
+## Download
+
+```{r, eval=FALSE}
+setwd("C:/Users/lo/Desktop/master/bioinformatics/week9")
+getwd()
+
+options(timeout = 6000)
+
+zip_file <- "clustering_practical.zip"
+
+# download only if the archive is not already present
+if (!file.exists(zip_file)) {
+  download.file(
+    "https://ethz-ins.org/content/clustering_assignment.zip",
+    destfile = zip_file
+  )
+}
+
+# unzip only if the extracted files are not already present
+if (length(list.files(pattern = "\\.bw$")) == 0) {
+  unzip(zip_file)
+}
+
+tracks <- list.files(pattern = "\\.bw$")
+```
+```{r}
+peaks <- list.files(pattern="bed$")
+
+peaks <- lapply(peaks, rtracklayer::import.bed)
+
+peaks <- lapply(peaks, FUN=function(x) x[x$score>800])
+
+regions <- reduce(unlist(GRangesList(peaks)))
+```
+
+
+## Clusters
+
+
+```{r}
+ese <- signal2Matrix(tracks, regions, extend=2000)
+cl2 <- clusterSignalMatrices(ese, k=2:10)
+ggplot(cl2$varExplained, aes(k, varExplained)) + geom_line()
+```
+
+```{mermaid}
+Four or five are the best choice for us.
+```
+
+
+```{r}
+
+set.seed(123)  
+cl <- clusterSignalMatrices(ese, k=4) ## I will compare 4 and 5 later
+table(cl)
+head(cl)
+length(cl)
+nrow(ese)
+
+
+rowData(ese)$cluster <- cl
+head(rowData(ese))
+```
+
+```{r}
+
+plotEnrichedHeatmaps(ese, row_split="cluster", colors=c("white","darkred"))
+```
+
+
+
+```{r}
+d <- meltSignals(ese, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line(size=1.2) + facet_wrap(~split)
+```
+
+
+```{r}
+set.seed(123)
+cl <- clusterSignalMatrices(ese, k=4, scaleRows = TRUE)
+d <- meltSignals(ese, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line() + facet_wrap(~split)
+plotEnrichedHeatmaps(ese, row_split = cl, scale_rows = "global")
+```
+
+
+```{r}
+set.seed(123)
+cl <- clusterSignalMatrices(ese, k=5, scaleRows = TRUE)
+d <- meltSignals(ese, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line() + facet_wrap(~split)
+plotEnrichedHeatmaps(ese, row_split = cl, scale_rows = "global")
+```
+
+
+```{mermaid}
+Deciding whether to use four or five clusters was quite difficult, but overall, the new clusters don’t add any new information (cluster two was simply split into two). However, they introduce noise into the other clusters, which I’d rather avoid, so I decided to use four clusters instead.
+```
+
+
+## Enrichment analysis
+
+
+## Cluster 3
+```{r}
+# Cluster 3
+split_regions <- split(rowRanges(ese), rowData(ese)$cluster)
+lengths(split_regions)
+
+res <- great(
+  split_regions[["3"]],
+  gene_sets = "GO:BP",
+  tss_source = "hg38",
+  background = regions,
+  cores = 2
+)
+bp <- getEnrichmentTables(res)
+head(bp)
+
+```
+
+
+```{r, fig.width=9, fig.height=6}
+ggplot(head(bp,15), aes(fold_enrichment, reorder(description, p_adjust), 
+                        size=observed_region_hits, color=-log10(p_adjust))) + 
+  geom_point() + scale_color_viridis_c()
+```
+
+```{mermaid}
+Although there are yellow dots in cluster 3, they are close to 1.5—this indicates a widely represented, statistically significant, but moderately strong effect associated with these two categories: “cellular response to stimulus” and “cell communication.” There is high enrichment, but it is weak and poorly supported by the data for the dots labeled “granulocyte migration” and “chemotaxis.” 
+```
+
+
+
+## Cluster 1 
+```{r}
+
+split_regions <- split(rowRanges(ese), rowData(ese)$cluster)
+lengths(split_regions)
+
+res <- great(
+  split_regions[["1"]],
+  gene_sets = "GO:BP",
+  tss_source = "hg38",
+  background = regions,
+  cores = 2
+)
+bp <- getEnrichmentTables(res)
+head(bp)
+
+```
+
+
+```{r, fig.width=9, fig.height=6}
+ggplot(head(bp,15), aes(fold_enrichment, reorder(description, p_adjust), 
+                        size=observed_region_hits, color=-log10(p_adjust))) + 
+  geom_point() + scale_color_viridis_c()
+```
+
+```{mermaid}
+In cluster 1, there is a yellow central node with an enrichment score of 1.3—we can hypothesize a connection with the morphogenesis of anatomical structures.
+```
+
+
+
+## Cluster 4 
+
+```{r}
+# Cluster 4
+split_regions <- split(rowRanges(ese), rowData(ese)$cluster)
+lengths(split_regions)
+
+res <- great(
+  split_regions[["4"]],
+  gene_sets = "GO:BP",
+  tss_source = "hg38",
+  background = regions,
+  cores = 2
+)
+bp <- getEnrichmentTables(res)
+head(bp)
+
+```
+ 
+ 
+```{r, fig.width=9, fig.height=6}
+ggplot(head(bp,15), aes(fold_enrichment, reorder(description, p_adjust), 
+                        size=observed_region_hits, color=-log10(p_adjust))) + 
+  geom_point() + scale_color_viridis_c()
+```
+```{mermaid}
+ a small variation in p-values 
+```
+
