@@ -1,0 +1,157 @@
+---
+title: "assignment"
+output: html_document
+date: "2026-05-21"
+---
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(ensembldb)
+  library(AnnotationHub)
+  library(InteractionSet)
+  library(dplyr)
+  library(ggplot2)
+})
+```
+setwd("C:/Users/lo/Desktop/master/bioinformatics/week10")
+
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF937VZI/@@download/ENCFF937VZI.bed.gz", "POLR2A.narrowPeak.gz")
+
+download.file("https://www.encodeproject.org/files/ENCFF497HEA/@@download/ENCFF497HEA.bed.gz", "rE2G.bed.gz")
+
+```
+
+```{r}
+
+peaks <- rtracklayer::import("POLR2A.narrowPeak.gz")
+seqlevelsStyle(peaks) <- "ensembl"
+head(peaks)
+
+```
+
+```{r}
+re2G_raw <- read.table(
+  gzfile("rE2G.bed.gz"),
+  sep = "\t",
+  header = TRUE,          
+  stringsAsFactors = FALSE,
+  comment.char = "",      
+  quote = "",
+  check.names = FALSE
+)
+
+
+colnames(re2G_raw)[1] <- "chr"
+
+re2G <- GRanges(
+  seqnames = re2G_raw$chr,
+  ranges   = IRanges(
+    start = re2G_raw$start + 1L,   
+    end   = re2G_raw$end
+  ),
+  name              = re2G_raw$name,
+  class             = re2G_raw$class,
+  TargetGene        = re2G_raw$TargetGene,
+  TargetGeneEnsemblID = re2G_raw$TargetGeneEnsemblID,
+  TargetGeneTSS     = re2G_raw$TargetGeneTSS,
+  isSelfPromoter    = re2G_raw$isSelfPromoter,
+  CellType          = re2G_raw$CellType,
+  Score             = re2G_raw$Score
+)
+
+seqlevelsStyle(re2G) <- "ensembl"
+head(re2G)
+```
+
+```{r}
+o <- findOverlaps(peaks, re2G)
+head(o)
+
+re2G[subjectHits(o)[6]]
+
+target_list <- splitAsList(
+  re2G$TargetGene[subjectHits(o)],  
+  queryHits(o),                      
+  drop = FALSE                     
+)
+
+
+empty <- CharacterList(vector("list", length(peaks)))
+empty[as.integer(names(target_list))] <- target_list
+
+peaks$target <- empty
+```
+```{r}
+ah <- AnnotationHub()
+ensdb <- ah[["AH95744"]]
+```
+
+```{r}
+
+tss <- genes(ensdb, filter = SeqNameFilter(c(1:22, "X", "Y")))
+seqlevelsStyle(tss) <- "ensembl"
+tss <- resize(tss, width = 1, fix = "start")
+
+
+nearest_idx        <- nearest(peaks, tss, ignore.strand = TRUE)
+peaks$nearest_gene <- tss$gene_name[nearest_idx]
+peaks$nearest_TSS  <- start(tss[nearest_idx])
+```
+
+
+```{r}
+
+
+
+has_target <- peaks[lengths(peaks$target) > 0]
+peak_mid   <- (start(has_target) + end(has_target)) %/% 2
+
+
+df <- data.frame(
+  peak_mid     = rep(peak_mid, lengths(has_target$target)),
+  nearest_gene = rep(has_target$nearest_gene, lengths(has_target$target)),
+  target       = unlist(has_target$target),
+  stringsAsFactors = FALSE
+) %>%
+  left_join(
+    distinct(re2G_raw, TargetGene, TargetGeneTSS),
+    by = c("target" = "TargetGene")
+  ) %>%
+  mutate(
+    dist      = TargetGeneTSS - peak_mid,        
+    direction = ifelse(dist > 0, "Upstream of TSS", "Downstream of TSS"),
+    is_nearest = (target == nearest_gene)
+  ) %>%
+  filter(dist != 0)  
+```
+
+
+```{r}
+
+df %>%
+  group_by(direction) %>%
+  summarise(
+    n_pairs      = n(),
+    n_is_nearest = sum(is_nearest, na.rm = TRUE),
+    prop_nearest = mean(is_nearest, na.rm = TRUE)
+  )
+```
+```{r}
+ggplot(df, aes(x = abs(dist) / 1e3, fill = direction)) +
+  geom_histogram(bins = 80, alpha = 0.8) +
+  facet_wrap(~ direction, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c(
+    "Upstream of TSS"   = "#2166ac",
+    "Downstream of TSS" = "#d6604d"
+  )) +
+  labs(
+    title = "POLR2A peaks (K562) — distance to rE2G predicted target TSS",
+    x     = "Distance (kb)",
+    y     = "Number of peak-target pairs",
+    fill  = NULL
+  ) +
+  theme_bw(base_size = 13) +
+  theme(legend.position = "none")
+```
+
